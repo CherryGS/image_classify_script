@@ -22,6 +22,9 @@ class Author(Base):
     platform: Mapped[str] = mapped_column(String)
     platform_id: Mapped[int] = mapped_column(Integer)
 
+    def __repr__(self) -> str:
+        return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , name = '{self.name}')"
+
 
 class Platform(Base):
     __tablename__ = "_platform"
@@ -35,7 +38,7 @@ class Platform(Base):
     name: Mapped[str] = mapped_column(String, default="")
 
     def __repr__(self) -> str:
-        return f"Platform(user_id = {self.platform_id} , platform = '{self.platform}' , author_id = {self.author_id})"
+        return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , author_id = '{self.author_id}')"
 
 
 engine = create_engine("sqlite:///database.sqlite", echo=True)

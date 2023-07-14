@@ -1,5 +1,7 @@
 #self
 *.bkp
+*.backup
+backup/
 .vscode
 .idea
 

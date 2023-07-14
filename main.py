@@ -1,7 +1,7 @@
-import re
 import shutil
 import time
 from pathlib import Path
+from typing import Annotated, Optional
 
 import typer
 from rich import print
@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from classify import classify, find_all
 from model import Author, Platform, engine
-from typing import Annotated, Optional
 
 app = typer.Typer()
 
@@ -56,22 +55,26 @@ def classify_image(
 
 @app.command("find")
 def find_author(
-    platform_id: Annotated[Optional[int], typer.Argument(help="作者在平台对应的唯一标识")] = None,
-    name: Annotated[Optional[str], typer.Argument(help="作者在数据库")] = None,
-    platform: Annotated[Optional[str], typer.Argument(help="唯一标识符所对应的平台")] = None,
+    platform_id: Annotated[Optional[int], typer.Option(help="作者在平台对应的唯一标识")] = None,
+    name: Annotated[Optional[str], typer.Option(help="作者在平台的名称")] = None,
+    platform: Annotated[Optional[str], typer.Option(help="唯一标识符所对应的平台")] = None,
 ):
+    """
+    根据信息查找作者的数据库id.
+    """
     if platform_id is None and name is None and platform is None:
         print("不可同时为空.")
         raise typer.Abort()
     with Session(engine) as session:
-        stmt = select(Author)
+        stmt = select(Platform)
         if platform_id:
-            stmt = stmt.where(Author.platform_id == platform_id)
+            stmt = stmt.where(Platform.platform_id == platform_id)
         if name:
-            stmt = stmt.where(Author.name == name)
+            stmt = stmt.where(Platform.name == name)
         if platform:
-            stmt = stmt.where(Author.platform == platform)
-        authors = list(session.scalars(stmt))
+            stmt = stmt.where(Platform.platform == platform)
+        author_ids = {i.author_id for i in list(session.scalars(stmt))}
+        authors = list(session.scalars(select(Author).where(Author.id.in_(author_ids))))
         print(f"查询结果为:\n{authors}")
 
 
@@ -96,8 +99,9 @@ def add_platform(
                     name=platform_name,
                     author_id=author_id,
                 )
-                i = typer.confirm(f"将要添加 {p} , 是否确定.")
-                if i == "y":
+                print(f"将要添加 {p} , 是否确定.", end="")
+                i = typer.confirm("")
+                if i:
                     session.add(p)
                     session.commit()
                     print("添加操作已完成")
@@ -112,7 +116,7 @@ def add_platform(
 def add_author(
     platform_id: Annotated[int, typer.Argument(help="作者在平台的唯一标识符")],
     platform: Annotated[str, typer.Argument(help="唯一标识符对应的平台")],
-    name: Annotated[str, typer.Argument(help="作者在数据库的预览名")],
+    name: Annotated[str, typer.Argument(help="作者在数据库的预览名,默认为空")] = "",
 ):
     backup()
     with Session(engine) as session:
