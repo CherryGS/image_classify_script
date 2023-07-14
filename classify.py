@@ -1,7 +1,7 @@
 import re
 import shutil
 from pathlib import Path
-
+from logger import logger
 from rich import print
 from rich.progress import track
 
@@ -16,6 +16,7 @@ imagesPath = dict[platformTarget, list[Path]]
 
 def find_all(targets: list[platformTarget], loc: Path, res: imagesPath):
     for path in loc.iterdir():
+        logger.info(f"正在遍历 {path}.")
         if path.is_dir():
             find_all(targets, path, res)
         else:
@@ -24,7 +25,7 @@ def find_all(targets: list[platformTarget], loc: Path, res: imagesPath):
             _platform = re.search(platform_pattern, name)
             if _user_id and _platform:
                 _user_id = int(_user_id.group())
-                _platform = _platform.group()
+                _platform = _platform.group().lower()
                 st = (_user_id, _platform)
                 if st in targets:
                     res[st].append(path)
@@ -33,19 +34,22 @@ def find_all(targets: list[platformTarget], loc: Path, res: imagesPath):
 def classify(
     res: imagesPath, loc: Path, map: dict[platformTarget, tuple[int, str, str]]
 ):
-    total = 0
-    for i in track(res):
+    ress: list[tuple] = []
+    for i in track(res, description=""):
         if not res[i]:
             continue
+        logger.info(f"正在预处理作者 {i} 的文件.")
         author = map[i]
         pre = loc / f"@id={author[0]}"
         folder = pre
         if not folder.is_dir():
             folder.mkdir()
         for path in res[i]:
-            shutil.copy(path, folder)
-        total += len(res[i])
-    print(f"分类完毕, 本次共分类了 {total} 个文件.")
+            ress.append((path, folder))
+    for i in track(ress, description=""):
+        shutil.copy(i[0], i[1])
+
+    print(f"分类完毕, 本次共分类了 {len(ress)} 个文件.")
 
 
 if __name__ == "__main__":

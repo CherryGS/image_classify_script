@@ -1,11 +1,12 @@
 #self
 *.bkp
 *.backup
-backup/
+*.sqlite
 .vscode
 .idea
+log
+backup
 testdata
-*.sqlite
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
