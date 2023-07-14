@@ -23,7 +23,7 @@ class Author(Base):
     platform_id: Mapped[int] = mapped_column(Integer)
 
     def __repr__(self) -> str:
-        return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , name = '{self.name}')"
+        return f"Author(platform_id = '{self.platform_id}' , platform = '{self.platform}' , name = '{self.name}')"
 
 
 class Platform(Base):
@@ -38,8 +38,12 @@ class Platform(Base):
     name: Mapped[str] = mapped_column(String, default="")
 
     def __repr__(self) -> str:
-        return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , author_id = '{self.author_id}')"
+        return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , author_id = '{self.author_id}' , name = '{self.name}')"
 
 
-engine = create_engine("sqlite:///database.sqlite", echo=True)
+import os
+from pathlib import Path
+
+os.chdir(Path(os.path.realpath(__file__)).parent)
+engine = create_engine("sqlite:///database.sqlite", echo=False)
 Base.metadata.create_all(engine)

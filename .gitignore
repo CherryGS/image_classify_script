@@ -4,6 +4,8 @@
 backup/
 .vscode
 .idea
+testdata
+.sqlite
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

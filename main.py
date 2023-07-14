@@ -26,10 +26,7 @@ def backup():
 def get_author_platform(author_id: int):
     with Session(engine) as session:
         stmt = select(Platform).where(Platform.author_id == author_id)
-        lis = []
-        for i in session.scalars(stmt):
-            lis.append((i.platform_id, i.platform))
-        return lis
+        return [(i.platform_id, i.platform, i.name) for i in session.scalars(stmt)]
 
 
 @app.command("classify")
@@ -38,14 +35,20 @@ def classify_image(
     src: Annotated[Path, typer.Argument(help="待分类文件顶层目录")],
     des: Annotated[Path, typer.Argument(help="目标目录")],
 ):
+    """
+    将具有相同数据库id的作者平台的图片分到一起.
+    """
     lis = get_author_platform(author_id)
-    paths = dict()
-    map = dict()
-    for i in lis:
-        paths[i] = list()
-        map[i] = author_id
-    find_all(lis, src, paths)
-    ok = typer.confirm(f"已统计完源路径所有图片, 是否继续?")
+    print(lis)
+    paths: dict[tuple, list] = dict()
+    map: dict[tuple, tuple[int, str, str]] = dict()
+    lis_ = [(i[0:2]) for i in lis]
+    for i, j in zip(lis, lis_):
+        map[j] = (author_id, i[1], i[2])
+        paths[j] = list()
+    find_all(lis_, src, paths)
+    print(paths)
+    ok = typer.confirm(f"已统计完源路径所有图片,是否继续?")
     if ok:
         classify(paths, des, map)
     else:
@@ -60,8 +63,10 @@ def find_author(
     platform: Annotated[Optional[str], typer.Option(help="唯一标识符所对应的平台")] = None,
 ):
     """
-    根据信息查找作者的数据库id.
+    根据信息查找作者的数据库id. 平台应该使用小写.
     """
+    if platform:
+        platform = platform.lower()
     if platform_id is None and name is None and platform is None:
         print("不可同时为空.")
         raise typer.Abort()
@@ -85,6 +90,10 @@ def add_platform(
     author_id: Annotated[int, typer.Argument(help="作者在数据库对应的唯一标识符")],
     platform_name: Annotated[str, typer.Argument(help="作者的平台名称,默认为空")] = "",
 ):
+    """
+    向数据库中添加作者所属的平台账号信息. 平台应该使用小写.
+    """
+    platform = platform.lower()
     backup()
     with Session(engine) as session:
         stmt = select(Author).where(Author.id == author_id)
@@ -116,8 +125,14 @@ def add_platform(
 def add_author(
     platform_id: Annotated[int, typer.Argument(help="作者在平台的唯一标识符")],
     platform: Annotated[str, typer.Argument(help="唯一标识符对应的平台")],
-    name: Annotated[str, typer.Argument(help="作者在数据库的预览名,默认为空")] = "",
+    name: Annotated[
+        str, typer.Argument(help="作者在数据库的预览名,默认为空.添加含有特殊字符的作者名时请注意使用引号.")
+    ] = "",
 ):
+    """
+    向数据库中添加作者信息. 平台应该使用小写.
+    """
+    platform = platform.lower()
     backup()
     with Session(engine) as session:
         stmt = (
