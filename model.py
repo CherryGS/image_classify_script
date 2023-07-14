@@ -23,7 +23,7 @@ class Author(Base):
     platform_id: Mapped[int] = mapped_column(Integer)
 
     def __repr__(self) -> str:
-        return f"Author(platform_id = '{self.platform_id}' , platform = '{self.platform}' , name = '{self.name}')"
+        return f"Author(id = '{self.id}' , platform_id = '{self.platform_id}' , platform = '{self.platform}' , name = '{self.name}')"
 
 
 class Platform(Base):
@@ -41,10 +41,23 @@ class Platform(Base):
         return f"Platform(platform_id = '{self.platform_id}' , platform = '{self.platform}' , author_id = '{self.author_id}' , name = '{self.name}')"
 
 
+import logging
 import os
+from pathlib import Path
 
 debug = os.environ.get("DEBUG")
 
+level = logging.DEBUG if debug is not None else logging.WARNING
+logging.getLogger("sqlalchemy.engine").setLevel(level)
+logging.getLogger("sqlalchemy.pool").setLevel(level)
+logging.getLogger("sqlalchemy.dialects").setLevel(level)
+logging.getLogger("sqlalchemy.orm").setLevel(level)
 
-engine = create_engine("sqlite:///database.sqlite", echo=(debug is not None))
+engine = create_engine(
+    "sqlite:///database.sqlite",
+    # echo=(debug is not None),
+    logging_name=None,
+    pool_logging_name=None,
+)
 Base.metadata.create_all(engine)
+logging.getLogger().debug(f"Sqlite file locates at {Path('database.sqlite')}.")
