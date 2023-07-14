@@ -42,8 +42,9 @@ class Platform(Base):
 
 
 import os
-from pathlib import Path
 
-os.chdir(Path(os.path.realpath(__file__)).parent)
-engine = create_engine("sqlite:///database.sqlite", echo=False)
+debug = os.environ.get("DEBUG")
+
+
+engine = create_engine("sqlite:///database.sqlite", echo=(debug is not None))
 Base.metadata.create_all(engine)

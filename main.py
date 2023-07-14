@@ -1,16 +1,24 @@
+import os
+from pathlib import Path
+
+from logger import logger
+
+os.chdir(Path(os.path.realpath(__file__)).parent)
+
 import shutil
 import time
-from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
 from rich import print
+from rich.traceback import install
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from classify import classify, find_all
 from model import Author, Platform, engine
 
+install(show_locals=True)
 app = typer.Typer()
 
 
@@ -39,7 +47,7 @@ def classify_image(
     将具有相同数据库id的作者平台的图片分到一起.
     """
     lis = get_author_platform(author_id)
-    print(lis)
+    logger.debug(f"获取到的平台信息:\n {lis}")
     paths: dict[tuple, list] = dict()
     map: dict[tuple, tuple[int, str, str]] = dict()
     lis_ = [(i[0:2]) for i in lis]
@@ -47,7 +55,7 @@ def classify_image(
         map[j] = (author_id, i[1], i[2])
         paths[j] = list()
     find_all(lis_, src, paths)
-    print(paths)
+    logger.debug(f"获取到的文件信息:\n{paths}")
     ok = typer.confirm(f"已统计完源路径所有图片,是否继续?")
     if ok:
         classify(paths, des, map)
