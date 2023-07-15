@@ -28,9 +28,18 @@ console = Console(file=file)
 console_formatter = logging.Formatter(
     fmt="%(asctime)s.%(msecs)03d │ %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
-h1 = RichHandler(rich_tracebacks=True, tracebacks_show_locals=True, show_time=False)
+h1 = RichHandler(
+    rich_tracebacks=True,
+    tracebacks_show_locals=True,
+    show_time=False,
+    markup=True,
+)
 h2 = RichHandler(
-    console=console, rich_tracebacks=True, tracebacks_show_locals=True, show_time=False
+    console=console,
+    rich_tracebacks=True,
+    tracebacks_show_locals=True,
+    show_time=False,
+    markup=True,
 )
 h1.setLevel(level)
 h2.setLevel(logging.DEBUG)

@@ -13,6 +13,7 @@ from model import Platform
 
 user_id_pattern = r"(?<=@user_id=)[0-9]+"
 platform_pattern = r"(?<=@from=)\w+"
+tag_pattern = r"(?<=@tags=).*(?=[@,\.])"
 
 platformId = int
 platform = str
@@ -45,6 +46,23 @@ def regex_info(file: Iterable[str]):
             )
             res.append((i, r))
     return res
+
+
+def get_tag(s: Iterable[str]):
+    res: list[Future] = list()
+    with ThreadPoolExecutor() as exec:
+        for i in s:
+            r = exec.submit(re.search, tag_pattern, i, concurrent=True)
+            res.append(r)
+    ress: list[list[str]] = list()
+    for i in res:
+        a: re.Match[str] | None = i.result()
+        if a:
+            assert isinstance(a, re.Match)
+            ress.append(a.group().split(","))
+        else:
+            ress.append([""])
+    return ress
 
 
 def find_all_fast(targets: dict[Platform, list[Path]], loc: Path):

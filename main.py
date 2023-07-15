@@ -2,8 +2,6 @@
 import os
 from pathlib import Path
 
-import regex
-
 os.chdir(Path(os.path.realpath(__file__)).parent)
 
 """stage 2"""
@@ -12,7 +10,6 @@ from logger import logger
 """stage 3"""
 import shutil
 import time
-from itertools import chain
 from typing import Annotated, Optional
 
 import typer
@@ -22,7 +19,7 @@ from rich.traceback import install
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from classify import classify, find_all_fast, regex_info, scan_folder
+from classify import classify, find_all_fast, get_tag, regex_info, scan_folder
 from model import Author, Platform, engine
 
 install(show_locals=True)
@@ -42,6 +39,38 @@ def get_author_platform(author_ids: list[int]):
     with Session(engine) as session:
         stmt = select(Platform).where(Platform.author_id.in_(author_ids))
         return [i for i in session.scalars(stmt)]
+
+
+@app.command("nsfw")
+def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
+    """
+    扫描文件夹 , 将含有 nsfw 图片移到相应子文件夹.
+    建议首先使用 `classify` 将图片移到作者文件夹下.
+    """
+    paths: set[str] = set()
+    for folder in folders:
+        for path in scan_folder(folder):
+            paths.add(path)
+    logger.info(f"已统计完源路径所有图片,共 {len(paths)} 张.")
+    ok = typer.confirm(f" 是否继续?")
+    if not ok:
+        logger.info("停止.")
+        raise typer.Abort()
+    total = 0
+    total_move = 0
+    tags = get_tag(paths)
+    for i, j in track(zip(paths, tags), description=""):
+        if "R18" in j or "R-18" in j or "R-18G" in j or "R18G" in j:
+            total += 1
+            p = Path(i)
+            if p.parent.parts[-1] != "nsfw":
+                total_move += 1
+                l = p.parent / "nsfw"
+                if not l.is_dir():
+                    l.mkdir(exist_ok=True)
+                logger.debug(f"正在移动 {p} 至 {l}.")
+                shutil.move(p, l)
+    logger.info(f"共有nsfw图 {total} 张,其中有 {total_move} 张被移动.")
 
 
 @app.command("scan")
