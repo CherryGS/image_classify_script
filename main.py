@@ -41,6 +41,24 @@ def get_author_platform(author_ids: list[int]):
         return [i for i in session.scalars(stmt)]
 
 
+@app.command("change")
+def change_name(
+    folder: Annotated[Path, typer.Argument(help="扫描文件夹.")],
+    patt: Annotated[str, typer.Argument(help="模式串(采用直接匹配).")],
+    des: Annotated[str, typer.Argument(help="替换串.")],
+):
+    """
+    将扫描文件夹下的文件名中匹配的patt改为des.
+    """
+    paths = scan_folder(folder)
+    for i in track(paths, description="", transient=True):
+        o = Path(i)
+        t = o.name.replace(patt, des)
+        r = o.parent / t
+        logger.debug(f"{o}\n{r}")
+        os.rename(o, r)
+
+
 @app.command("nsfw")
 def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
     """
@@ -59,7 +77,7 @@ def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描�
     total = 0
     total_move = 0
     tags = get_tag(paths)
-    for i, j in track(zip(paths, tags), description=""):
+    for i, j in track(zip(paths, tags), description="", transient=True):
         if "R18" in j or "R-18" in j or "R-18G" in j or "R18G" in j:
             total += 1
             p = Path(i)

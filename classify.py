@@ -23,7 +23,10 @@ imagesPath = dict[platformTarget, list[Path]]
 
 
 def scan_folder(loc: Path):
-    folder = [str(loc)]
+    """
+    return file
+    """
+    folder = [str(loc.resolve(strict=True))]
     file: list[str] = list()
     while folder:
         now = folder.pop(0)
