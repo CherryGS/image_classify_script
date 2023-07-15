@@ -44,7 +44,7 @@ def get_author_platform(author_ids: list[int]):
 @app.command("nsfw")
 def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
     """
-    扫描文件夹 , 将含有 nsfw 图片移到相应子文件夹.
+    扫描文件夹,将含有 nsfw 图片移到相应子文件夹.
     建议首先使用 `classify` 将图片移到作者文件夹下.
     """
     paths: set[str] = set()
@@ -133,6 +133,9 @@ def auto_add_author(
 
 @app.command("scan")
 def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
+    """
+    扫描目录,统计图片-作者数.
+    """
     paths: set[str] = set()
     for folder in folders:
         for path in scan_folder(folder):
@@ -275,6 +278,9 @@ def add_platform(
 
 @app.command("merge")
 def merge_author(ids: Annotated[list[int], typer.Argument(help="待合并的id,默认合并到第一个上")]):
+    """
+    将多个作者合并成一个.
+    """
     id = ids[0]
     ids = ids[1:]
     backup()
@@ -295,6 +301,7 @@ def merge_author(ids: Annotated[list[int], typer.Argument(help="待合并的id,�
             logger.info(f"正在删除 {i}.")
             session.delete(i)
         session.commit()
+
 
 @app.command("new")
 def add_author(
