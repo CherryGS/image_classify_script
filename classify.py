@@ -65,7 +65,7 @@ def get_tag(s: Iterable[str]):
     return ress
 
 
-def find_all_fast(targets: dict[Platform, list[Path]], loc: Path):
+def find_all_fast(targets: dict[Platform, set[Path]], loc: Path):
     """
     1. 使用 `os.scandir`
     2. 递归变递推
@@ -82,7 +82,7 @@ def find_all_fast(targets: dict[Platform, list[Path]], loc: Path):
             st = (int(a), b)
             for j in targets:
                 if st == (j.platform_id, j.platform):
-                    targets[j].append(Path(i[0]))
+                    targets[j].add(Path(i[0]))
 
 
 def find_all(targets: dict[Platform, list[Path]], loc: Path):
@@ -103,7 +103,7 @@ def find_all(targets: dict[Platform, list[Path]], loc: Path):
                         targets[i].append(path)
 
 
-def classify(target: dict[Platform, list[Path]], loc: Path):
+def classify(target: dict[Platform, set[Path]], loc: Path):
     ress: list[tuple[Path, Path]] = []
     for i in target:
         if not target[i]:

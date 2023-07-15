@@ -10,7 +10,7 @@ from logger import logger
 """stage 3"""
 import shutil
 import time
-from typing import Annotated, Optional
+from typing import Annotated, Iterable, Optional
 
 import typer
 from rich import print
@@ -98,23 +98,25 @@ def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的�
 
 @app.command("classify")
 def classify_image(
-    src: Annotated[Path, typer.Argument(help="待分类文件顶层目录")],
-    des: Annotated[Path, typer.Argument(help="目标目录")],
-    author_ids: Annotated[list[int], typer.Argument(help="作者在数据库对应的唯一标识符")],
+    src: Annotated[list[Path], typer.Argument(help="待分类文件顶层目录")],
+    des: Annotated[Path, typer.Option(help="目标目录")],
+    ids: Annotated[tuple[int, int], typer.Option(help="作者在数据库对应的唯一标识符范围,左闭右开.")],
 ):
     """
     将具有相同数据库id的作者平台的图片分到一起.
     """
+    author_ids = [i for i in range(ids[0], ids[1])]
     lis = get_author_platform(author_ids)
     if not lis:
         logger.warning("未获取到作者的平台信息或该作者在数据库中不存在,程序将退出.")
         raise typer.Abort()
     logger.debug(f"获取到的平台信息:\n {lis}")
 
-    paths: dict[Platform, list[Path]] = dict()
+    paths: dict[Platform, set[Path]] = dict()
     for i in lis:
-        paths[i] = list()
-    find_all_fast(paths, src)
+        paths[i] = set()
+    for i in src:
+        find_all_fast(paths, i)
     logger.debug(f"获取到的文件信息:\n{paths}")
     info = [(i, f"{len(paths[i])} 个文件.") for i in paths]
     logger.info(f"{info}")
