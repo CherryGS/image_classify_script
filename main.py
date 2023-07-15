@@ -273,6 +273,29 @@ def add_platform(
                 logger.error(f"[red]Alert![/red]出现重复字段,数据库可能已经损坏!")
 
 
+@app.command("merge")
+def merge_author(ids: Annotated[list[int], typer.Argument(help="待合并的id,默认合并到第一个上")]):
+    id = ids[0]
+    ids = ids[1:]
+    backup()
+    with Session(engine) as session:
+        p1 = list(session.scalars(select(Author).where(Author.id == id)))
+        p2 = list(session.scalars(select(Author).where(Author.id.in_(ids))))
+        logger.info(f"{p2} 将被合并到 {p1} 中. 其在数据库中的信息会被删除.")
+        ok = typer.confirm(" 是否确定?")
+        if not ok:
+            logger.info("停止.")
+            raise typer.Abort()
+        for i in track(ids, description=""):
+            stmt = select(Platform).where(Platform.author_id == i)
+            res = list(session.scalars(stmt))
+            for j in res:
+                j.author_id = id
+        for i in p2:
+            logger.info(f"正在删除 {i}.")
+            session.delete(i)
+        session.commit()
+
 @app.command("new")
 def add_author(
     platform_id: Annotated[int, typer.Argument(help="作者在平台的唯一标识符")],
