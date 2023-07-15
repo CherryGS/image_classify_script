@@ -10,7 +10,7 @@ from logger import logger
 """stage 3"""
 import shutil
 import time
-from typing import Annotated, Iterable, Optional
+from typing import Annotated, Hashable, Iterable, Optional
 
 import typer
 from rich import print
@@ -73,6 +73,64 @@ def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描�
     logger.info(f"共有nsfw图 {total} 张,其中有 {total_move} 张被移动.")
 
 
+@app.command("auto")
+def auto_add_author(
+    folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")],
+    lim: Annotated[int, typer.Option(help="录入的最小图片数量.")],
+):
+    """
+    扫描目录,统计图片数量,自动加入高过一定数量的作者.
+    """
+    paths: set[str] = set()
+    for folder in folders:
+        for path in scan_folder(folder):
+            paths.add(path)
+    res = regex_info(paths)
+    ress: set[tuple] = set()
+    cnt: dict[Hashable, int] = dict()
+    with Session(engine) as session:
+        for i in track(res, description="", transient=True):
+            a = i[1][0].result()
+            b = i[1][1].result()
+            c = i[1][2].result()
+            if a and b:
+                a = int(a.group())
+                b = b.group()
+                st = (a, b)
+                if not st in cnt:
+                    cnt[st] = 1
+                else:
+                    cnt[st] += 1
+                if cnt[st] != lim:
+                    continue
+                if c:
+                    c = c.group()
+                else:
+                    c = ""
+                stmt = (
+                    select(Platform)
+                    .where(Platform.platform_id == a)
+                    .where(Platform.platform == b)
+                )
+                res = list(session.scalars(stmt))
+                assert len(res) <= 1
+                if len(res) == 0:
+                    ress.add((a, b, c))
+                else:
+                    logger.debug(f"路径 {i[0]} 对应作者 {res[0]}.")
+
+        logger.info(f"进入添加作者模式,共有{len(ress)}个作者待添加.添加时默认启用quick参数.")
+        ok = typer.confirm(f" 是否继续?")
+        if ok:
+            for i in ress:
+                logger.info(f"图片 {cnt[(i[0], i[1])]} 张.")
+                add_author(i[0], i[1], i[2], True)
+            logger.info("添加完毕.")
+        else:
+            logger.info("停止.")
+            raise typer.Abort()
+
+
 @app.command("scan")
 def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
     paths: set[str] = set()
@@ -94,18 +152,19 @@ def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的�
                 info[st] = 1
     logger.info(f"{sorted(info.items(), key=lambda x: x[1])}")
     logger.info(f"共有文件 {sum(info.values())}")
+    logger.info(f"共有平台作者 {len(info.keys())}")
 
 
 @app.command("classify")
 def classify_image(
     src: Annotated[list[Path], typer.Argument(help="待分类文件顶层目录")],
     des: Annotated[Path, typer.Option(help="目标目录")],
-    ids: Annotated[tuple[int, int], typer.Option(help="作者在数据库对应的唯一标识符范围,左闭右开.")],
+    ids: Annotated[tuple[int, int], typer.Option(help="作者在数据库对应的唯一标识符范围.")],
 ):
     """
     将具有相同数据库id的作者平台的图片分到一起.
     """
-    author_ids = [i for i in range(ids[0], ids[1])]
+    author_ids = [i for i in range(ids[0], ids[1] + 1)]
     lis = get_author_platform(author_ids)
     if not lis:
         logger.warning("未获取到作者的平台信息或该作者在数据库中不存在,程序将退出.")
@@ -163,6 +222,7 @@ def add_platform(
     platform: Annotated[str, typer.Argument(help="唯一标识符所对应的平台")],
     author_id: Annotated[int, typer.Argument(help="作者在数据库对应的唯一标识符")],
     platform_name: Annotated[str, typer.Argument(help="作者的平台名称,默认为空")] = "",
+    ok: Annotated[bool, typer.Option(help="快速添加对应平台")] = False,
 ):
     """
     向数据库中添加作者所属的平台账号信息. 平台应该使用小写.
@@ -182,9 +242,10 @@ def add_platform(
                     name=platform_name,
                     author_id=author_id,
                 )
-                logger.info(f"将要添加 {p} .")
-                i = typer.confirm(" 是否确定?")
-                if i:
+                logger.info(f"将要添加 {p}.")
+                if not ok:
+                    ok = typer.confirm(" 是否确定?")
+                if ok:
                     stmt = (
                         select(Platform)
                         .where(Platform.platform_id == platform_id)
@@ -206,10 +267,10 @@ def add_platform(
                         case _:
                             logger.warning(f"出现了多项重复项,请检查数据表. {res}")
                 else:
-                    print("添加操作已取消")
+                    logger.info("添加操作已取消")
                     raise typer.Abort()
             case _:
-                print(f"[red]Alert![/red]出现重复字段,数据库可能已经损坏!")
+                logger.error(f"[red]Alert![/red]出现重复字段,数据库可能已经损坏!")
 
 
 @app.command("new")
@@ -219,7 +280,7 @@ def add_author(
     name: Annotated[
         str, typer.Argument(help="作者在数据库的预览名,默认为空.添加含有特殊字符(如空格)的作者名时请注意使用引号.")
     ] = "",
-    quick: Annotated[bool, typer.Option(help="快速添加对应平台")] = False,
+    quick: Annotated[bool, typer.Option(help="忽略确定.")] = False,
 ):
     """
     向数据库中添加作者信息. 平台应该使用小写.
@@ -237,10 +298,19 @@ def add_author(
             raise typer.Abort()
         author = Author(name=name, platform=platform, platform_id=platform_id)
         session.add(author)
-        session.commit()
-        logger.info(f"数据库中添加了新作者 {author}.")
+        session.flush()
+        logger.info(f"将要添加 {author}.")
+        if not quick:
+            quick = typer.confirm(" 是否确定?")
+        if quick:
+            session.commit()
+            logger.info(f"数据库中添加了新作者 {author}.")
+        else:
+            session.rollback()
+            logger.info(f"停止.")
+            raise typer.Abort()
     if quick:
-        add_platform(platform_id, platform, author.id, name)
+        add_platform(platform_id, platform, author.id, name, quick)
 
 
 if __name__ == "__main__":

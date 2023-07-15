@@ -1,6 +1,6 @@
 import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
-from os import scandir
+from os import name, scandir
 from pathlib import Path
 from typing import Iterable
 
@@ -11,9 +11,10 @@ from rich.progress import track
 from logger import logger
 from model import Platform
 
-user_id_pattern = r"(?<=@user_id=)[0-9]+"
-platform_pattern = r"(?<=@from=)\w+"
-tag_pattern = r"(?<=@tags=).*(?=[@,\.])"
+user_id_pattern = r"(?<=@user_id=).*?(?=@|(\.[a-zA-Z]+$))"
+user_pattern = r"(?<=@user=).*?(?=@|(\.[a-zA-Z]+$))"
+platform_pattern = r"(?<=@from=).*?(?=@|(\.[a-zA-Z]+$))"
+tag_pattern = r"(?<=@tags=).*?(?=@|(\.[a-zA-Z]+$))"
 
 platformId = int
 platform = str
@@ -37,12 +38,13 @@ def scan_folder(loc: Path):
 
 
 def regex_info(file: Iterable[str]):
-    res: list[tuple[str, tuple[Future, Future]]] = list()
+    res: list[tuple[str, tuple[Future, Future, Future]]] = list()
     with ThreadPoolExecutor() as exec:
         for i in file:
             r = (
                 exec.submit(re.search, user_id_pattern, i, concurrent=True),
                 exec.submit(re.search, platform_pattern, i, concurrent=True),
+                exec.submit(re.search, user_pattern, i, concurrent=True),
             )
             res.append((i, r))
     return res
