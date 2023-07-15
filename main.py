@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 
+import regex
+
 os.chdir(Path(os.path.realpath(__file__)).parent)
 
 """stage 2"""
@@ -10,15 +12,17 @@ from logger import logger
 """stage 3"""
 import shutil
 import time
+from itertools import chain
 from typing import Annotated, Optional
 
 import typer
 from rich import print
+from rich.progress import track
 from rich.traceback import install
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from classify import classify, find_all
+from classify import classify, find_all_fast, regex_info, scan_folder
 from model import Author, Platform, engine
 
 install(show_locals=True)
@@ -34,41 +38,64 @@ def backup():
     shutil.copy(db, bac)
 
 
-def get_author_platform(author_id: int):
+def get_author_platform(author_ids: list[int]):
     with Session(engine) as session:
-        stmt = select(Platform).where(Platform.author_id == author_id)
-        return [(i.platform_id, i.platform, i.name) for i in session.scalars(stmt)]
+        stmt = select(Platform).where(Platform.author_id.in_(author_ids))
+        return [i for i in session.scalars(stmt)]
+
+
+@app.command("scan")
+def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
+    paths: set[str] = set()
+    for folder in folders:
+        for path in scan_folder(folder):
+            paths.add(path)
+    res = regex_info(paths)
+    info: dict[tuple[int, str], int] = dict()
+    for i in track(res, description="", transient=True):
+        a = i[1][0].result()
+        b = i[1][1].result()
+        if a and b:
+            a = a.group()
+            b = b.group()
+            st = (int(a), b)
+            if st in info:
+                info[st] += 1
+            else:
+                info[st] = 1
+    logger.info(f"{sorted(info.items(), key=lambda x: x[1])}")
+    logger.info(f"共有文件 {sum(info.values())}")
 
 
 @app.command("classify")
 def classify_image(
-    author_id: Annotated[int, typer.Argument(help="作者在数据库对应的唯一标识符")],
     src: Annotated[Path, typer.Argument(help="待分类文件顶层目录")],
     des: Annotated[Path, typer.Argument(help="目标目录")],
+    author_ids: Annotated[list[int], typer.Argument(help="作者在数据库对应的唯一标识符")],
 ):
     """
     将具有相同数据库id的作者平台的图片分到一起.
     """
-    lis = get_author_platform(author_id)
+    lis = get_author_platform(author_ids)
     if not lis:
         logger.warning("未获取到作者的平台信息或该作者在数据库中不存在,程序将退出.")
         raise typer.Abort()
     logger.debug(f"获取到的平台信息:\n {lis}")
 
-    paths: dict[tuple, list] = dict()
-    map: dict[tuple, tuple[int, str, str]] = dict()
-    lis_ = [(i[0:2]) for i in lis]
-    for i, j in zip(lis, lis_):
-        map[j] = (author_id, i[1], i[2])
-        paths[j] = list()
-    find_all(lis_, src, paths)
+    paths: dict[Platform, list[Path]] = dict()
+    for i in lis:
+        paths[i] = list()
+    find_all_fast(paths, src)
     logger.debug(f"获取到的文件信息:\n{paths}")
+    info = [(i, f"{len(paths[i])} 个文件.") for i in paths]
+    logger.info(f"{info}")
 
-    ok = typer.confirm(f"已统计完源路径所有图片,共 {sum([len(paths[i]) for i in paths])} 张,是否继续?")
+    logger.info(f"已统计完源路径所有图片,共 {sum([len(paths[i]) for i in paths])} 张.")
+    ok = typer.confirm(f" 是否继续?")
     if ok:
-        classify(paths, des, map)
+        classify(paths, des)
     else:
-        print("停止.")
+        logger.info("停止.")
         raise typer.Abort()
 
 
@@ -124,12 +151,29 @@ def add_platform(
                     name=platform_name,
                     author_id=author_id,
                 )
-                print(f"将要添加 {p} , 是否确定.", end="")
-                i = typer.confirm("")
+                logger.info(f"将要添加 {p} .")
+                i = typer.confirm(" 是否确定?")
                 if i:
-                    session.add(p)
-                    session.commit()
-                    print("添加操作已完成")
+                    stmt = (
+                        select(Platform)
+                        .where(Platform.platform_id == platform_id)
+                        .where(Platform.platform == platform)
+                    )
+                    res = list(session.scalars(stmt))
+                    match len(res):
+                        case 0:
+                            session.add(p)
+                            session.commit()
+                            logger.info("添加操作已完成")
+                        case 1:
+                            if res[0].author_id == p.author_id:
+                                logger.info("重复添加,该操作将会跳过.")
+                            else:
+                                logger.warning(
+                                    f"出现了仅有 author_id 不一样的项,请检查数据表. {res[0]}"
+                                )
+                        case _:
+                            logger.warning(f"出现了多项重复项,请检查数据表. {res}")
                 else:
                     print("添加操作已取消")
                     raise typer.Abort()
@@ -142,8 +186,9 @@ def add_author(
     platform_id: Annotated[int, typer.Argument(help="作者在平台的唯一标识符")],
     platform: Annotated[str, typer.Argument(help="唯一标识符对应的平台")],
     name: Annotated[
-        str, typer.Argument(help="作者在数据库的预览名,默认为空.添加含有特殊字符的作者名时请注意使用引号.")
+        str, typer.Argument(help="作者在数据库的预览名,默认为空.添加含有特殊字符(如空格)的作者名时请注意使用引号.")
     ] = "",
+    quick: Annotated[bool, typer.Option(help="快速添加对应平台")] = False,
 ):
     """
     向数据库中添加作者信息. 平台应该使用小写.
@@ -157,12 +202,14 @@ def add_author(
             .where(Author.platform == platform)
         )
         if len(list(session.scalars(stmt))) != 0:
-            print(f"[green]该项已有,过程将[red][bold]停止[/bold][/red].[/green]")
+            logger.info(f"[green]该项已有,过程将[red][bold]停止[/bold][/red].[/green]")
             raise typer.Abort()
         author = Author(name=name, platform=platform, platform_id=platform_id)
         session.add(author)
         session.commit()
-        print(f"数据库中添加了新作者 {author}.")
+        logger.info(f"数据库中添加了新作者 {author}.")
+    if quick:
+        add_platform(platform_id, platform, author.id, name)
 
 
 if __name__ == "__main__":

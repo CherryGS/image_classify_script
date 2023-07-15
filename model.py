@@ -47,7 +47,7 @@ from pathlib import Path
 
 debug = os.environ.get("DEBUG")
 
-level = logging.DEBUG if debug is not None else logging.WARNING
+level = logging.DEBUG if debug else logging.WARNING
 logging.getLogger("sqlalchemy.engine").setLevel(level)
 logging.getLogger("sqlalchemy.pool").setLevel(level)
 logging.getLogger("sqlalchemy.dialects").setLevel(level)
