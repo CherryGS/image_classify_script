@@ -1,11 +1,15 @@
 """stage 1"""
 import os
+from datetime import date
+from functools import cache
 from pathlib import Path
+
+import regex
 
 os.chdir(Path(os.path.realpath(__file__)).parent)
 
 """stage 2"""
-from logger import logger
+from .logger import logger
 
 """stage 3"""
 import shutil
@@ -13,14 +17,15 @@ import time
 from typing import Annotated, Hashable, Iterable, Optional
 
 import typer
+from anyutils.file import scan_folder
+from anyutils.regex import regex_info
 from rich import print
 from rich.progress import track
 from rich.traceback import install
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from classify import classify, find_all_fast, get_tag, regex_info, scan_folder
-from model import Author, Platform, engine
+from .model import Author, Platform, engine
 
 install(show_locals=True)
 app = typer.Typer()
@@ -41,173 +46,98 @@ def get_author_platform(author_ids: list[int]):
         return [i for i in session.scalars(stmt)]
 
 
-@app.command("change")
-def change_name(
-    folder: Annotated[Path, typer.Argument(help="扫描文件夹.")],
-    patt: Annotated[str, typer.Argument(help="模式串(采用直接匹配).")],
-    des: Annotated[str, typer.Argument(help="替换串.")],
-):
-    """
-    将扫描文件夹下的文件名中匹配的patt改为des.
-    """
-    paths = scan_folder(folder)
-    for i in track(paths, description="", transient=True):
-        o = Path(i)
-        t = o.name.replace(patt, des)
-        r = o.parent / t
-        logger.debug(f"{o}\n{r}")
-        os.rename(o, r)
+user_id_pattern = r"(?<=@user_id=).*?(?=@|(\.[a-zA-Z]+$))"
+user_pattern = r"(?<=@user=).*?(?=@|(\.[a-zA-Z]+$))"
+from_pattern = r"(?<=@from=).*?(?=@|(\.[a-zA-Z]+$))"
+date_pattern = r"(?<=@date=).*?(?=@|(\.[a-zA-Z]+$))"
+id_pattern = r"(?<=@id=).*?(?=@|(\.[a-zA-Z]+$))"
 
 
-@app.command("nsfw")
-def classify_nsfw(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
-    """
-    扫描文件夹,将含有 nsfw 图片移到相应子文件夹.
-    建议首先使用 `classify` 将图片移到作者文件夹下.
-    """
-    paths: set[str] = set()
-    for folder in folders:
-        for path in scan_folder(folder):
-            paths.add(path)
-    logger.info(f"已统计完源路径所有图片,共 {len(paths)} 张.")
-    ok = typer.confirm(f" 是否继续?")
-    if not ok:
-        logger.info("停止.")
-        raise typer.Abort()
-    total = 0
-    total_move = 0
-    tags = get_tag(paths)
-    for i, j in track(zip(paths, tags), description="", transient=True):
-        if "R18" in j or "R-18" in j or "R-18G" in j or "R18G" in j:
-            total += 1
-            p = Path(i)
-            if p.parent.parts[-1] != "nsfw":
-                total_move += 1
-                l = p.parent / "nsfw"
-                if not l.is_dir():
-                    l.mkdir(exist_ok=True)
-                logger.debug(f"正在移动 {p} 至 {l}.")
-                shutil.move(p, l)
-    logger.info(f"共有nsfw图 {total} 张,其中有 {total_move} 张被移动.")
+@cache
+def get_author(platform: str, user_id: str, user: str):
+    with Session(engine) as session:
+        res = list(
+            session.scalars(
+                select(Platform)
+                .where(Platform.platform == platform)
+                .where(Platform.platform_id == user_id)
+            )
+        )
+
+        if not res:
+            author = Author(name=user, platform=platform, platform_id=user_id)
+            session.add(author)
+            session.flush()
+            platf = Platform(
+                platform_id=user_id,
+                platform=platform,
+                name=user,
+                author_id=author.id,
+            )
+            session.add(platf)
+            session.commit()
+            res = [platf]
+            logger.info(f"Add {author}")
+            logger.info(f"Add {platf}")
+
+        authors = list(
+            session.scalars(select(Author).where(Author.id == res[0].author_id))
+        )
+        logger.debug(f"{authors[0]}")
+        return authors[0]
 
 
 @app.command("auto")
-def auto_add_author(
+def auto(
     folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")],
-    lim: Annotated[int, typer.Option(help="录入的最小图片数量.")],
-):
-    """
-    扫描目录,统计图片数量,自动加入高过一定数量的作者.
-    """
-    paths: set[str] = set()
-    for folder in folders:
-        for path in scan_folder(folder):
-            paths.add(path)
-    res = regex_info(paths)
-    ress: set[tuple] = set()
-    cnt: dict[Hashable, int] = dict()
-    with Session(engine) as session:
-        for i in track(res, description="", transient=True):
-            a = i[1][0].result()
-            b = i[1][1].result()
-            c = i[1][2].result()
-            if a and b:
-                a = int(a.group())
-                b = b.group()
-                st = (a, b)
-                if not st in cnt:
-                    cnt[st] = 1
-                else:
-                    cnt[st] += 1
-                if cnt[st] != lim:
-                    continue
-                if c:
-                    c = c.group()
-                else:
-                    c = ""
-                stmt = (
-                    select(Platform)
-                    .where(Platform.platform_id == a)
-                    .where(Platform.platform == b)
-                )
-                res = list(session.scalars(stmt))
-                assert len(res) <= 1
-                if len(res) == 0:
-                    ress.add((a, b, c))
-                else:
-                    logger.debug(f"路径 {i[0]} 对应作者 {res[0]}.")
-
-        logger.info(f"进入添加作者模式,共有{len(ress)}个作者待添加.添加时默认启用quick参数.")
-        ok = typer.confirm(f" 是否继续?")
-        if ok:
-            for i in ress:
-                logger.info(f"图片 {cnt[(i[0], i[1])]} 张.")
-                add_author(i[0], i[1], i[2], True)
-            logger.info("添加完毕.")
-        else:
-            logger.info("停止.")
-            raise typer.Abort()
-
-
-@app.command("scan")
-def scan_image(folders: Annotated[list[Path], typer.Argument(help="待扫描的目标目录们")]):
-    """
-    扫描目录,统计图片-作者数.
-    """
-    paths: set[str] = set()
-    for folder in folders:
-        for path in scan_folder(folder):
-            paths.add(path)
-    res = regex_info(paths)
-    info: dict[tuple[int, str], int] = dict()
-    for i in track(res, description="", transient=True):
-        a = i[1][0].result()
-        b = i[1][1].result()
-        if a and b:
-            a = a.group()
-            b = b.group()
-            st = (int(a), b)
-            if st in info:
-                info[st] += 1
-            else:
-                info[st] = 1
-    logger.info(f"{sorted(info.items(), key=lambda x: x[1])}")
-    logger.info(f"共有文件 {sum(info.values())}")
-    logger.info(f"共有平台作者 {len(info.keys())}")
-
-
-@app.command("classify")
-def classify_image(
-    src: Annotated[list[Path], typer.Argument(help="待分类文件顶层目录")],
     des: Annotated[Path, typer.Option(help="目标目录")],
-    ids: Annotated[tuple[int, int], typer.Option(help="作者在数据库对应的唯一标识符范围.")],
 ):
     """
-    将具有相同数据库id的作者平台的图片分到一起.
+    扫描目录,加入作者.
     """
-    author_ids = [i for i in range(ids[0], ids[1] + 1)]
-    lis = get_author_platform(author_ids)
-    if not lis:
-        logger.warning("未获取到作者的平台信息或该作者在数据库中不存在,程序将退出.")
-        raise typer.Abort()
-    logger.debug(f"获取到的平台信息:\n {lis}")
+    backup()
+    paths: set[os.DirEntry[str]] = set()
+    for folder in folders:
+        for path in scan_folder(folder):
+            paths.add(path)
+    info = regex_info(
+        map(lambda x: x.name, paths),
+        [from_pattern, user_id_pattern, user_pattern, date_pattern],
+    )
+    dic: dict[int, Path] = dict()
+    for i in os.scandir(des):
+        if i.is_dir():
+            res = regex.search(id_pattern, i.name)
+            if res:
+                dic[int(res.group())] = Path(i)
+    for i, j in track(zip(info, paths)):
+        (platform, user_id, user, create_time) = i
+        if platform is None or user_id is None:
+            logger.warning(f"图片 '{i[0]}' 无法查询到信息 , 跳过.")
+            continue
+        author = get_author(platform, user_id, user if user else "Unknown")
+        if author.id not in dic:
+            name = author.name.replace("@", "＠").replace(".", "。")
+            path = des / f"@id={author.id}@name={author.platform}_{name}".replace(
+                " ", "-"
+            )
+            dic[author.id] = path
 
-    paths: dict[Platform, set[Path]] = dict()
-    for i in lis:
-        paths[i] = set()
-    for i in src:
-        find_all_fast(paths, i)
-    logger.debug(f"获取到的文件信息:\n{paths}")
-    info = [(i, f"{len(paths[i])} 个文件.") for i in paths]
-    logger.info(f"{info}")
-
-    logger.info(f"已统计完源路径所有图片,共 {sum([len(paths[i]) for i in paths])} 张.")
-    ok = typer.confirm(f" 是否继续?")
-    if ok:
-        classify(paths, des)
-    else:
-        logger.info("停止.")
-        raise typer.Abort()
+        date_ = (
+            date.fromisoformat(create_time) if create_time else date.fromtimestamp(0)
+        )
+        path = (
+            dic[author.id]
+            / f"@from={platform}"
+            / f"@date={date_.year}-{('0'+str(date_.month))[-2:]}-01"
+        )
+        if not path.is_dir():
+            os.makedirs(path)
+            logger.info(f"Make dir '{path}'")
+        if not (path / j.name).is_file():
+            shutil.move(j, path)
+        else:
+            logger.debug(f"重复的文件 '{j.path}'")
 
 
 @app.command("find")
@@ -294,10 +224,33 @@ def add_platform(
                 logger.error(f"[red]Alert![/red]出现重复字段,数据库可能已经损坏!")
 
 
+def merge_file(id: int, ids: list[int], des: Path):
+    dic: dict[int, Path] = dict()
+    for i in os.scandir(des):
+        if i.is_dir():
+            res = regex.search(id_pattern, i.name)
+            if res:
+                dic[int(res.group())] = Path(i)
+    if not id in dic:
+        logger.error(f"id 为 {id} 的相关文件夹必须存在.")
+        raise typer.Abort()
+
+    path = dic[id]
+    logger.info(f"目标目录 '{path}'")
+    for i in ids:
+        logger.info(f"正在合并 {i} 相关文件.")
+        if i in dic:
+            shutil.copytree(dic[i], path, dirs_exist_ok=True)
+
+
 @app.command("merge")
-def merge_author(ids: Annotated[list[int], typer.Argument(help="待合并的id,默认合并到第一个上")]):
+def merge_author(
+    ids: Annotated[list[int], typer.Argument(help="待合并的id,默认合并到第一个上")],
+    des: Annotated[Optional[Path], typer.Option(help="根目录")] = None,
+):
     """
     将多个作者合并成一个.
+    指定了 --des 之后会合并文件.
     """
     id = ids[0]
     ids = ids[1:]
@@ -319,6 +272,8 @@ def merge_author(ids: Annotated[list[int], typer.Argument(help="待合并的id,�
             logger.info(f"正在删除 {i}.")
             session.delete(i)
         session.commit()
+    if des is not None:
+        merge_file(id, ids, des)
 
 
 @app.command("new")
@@ -359,11 +314,3 @@ def add_author(
             raise typer.Abort()
     if quick:
         add_platform(platform_id, platform, author.id, name, quick)
-
-
-if __name__ == "__main__":
-    logger.debug("Run in debug Mode.")
-    app()
-    from logger import file
-
-    file.close()

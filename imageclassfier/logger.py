@@ -3,6 +3,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+from anyutils.logger import get_env_logger_info
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -22,8 +23,7 @@ while True:
 file = open(path, "a+", encoding="utf8")
 
 
-debug = os.environ.get("DEBUG")
-level = logging.DEBUG if debug else logging.INFO
+log_level = get_env_logger_info()
 console = Console(file=file)
 console_formatter = logging.Formatter(
     fmt="%(asctime)s.%(msecs)03d │ %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -41,7 +41,7 @@ h2 = RichHandler(
     show_time=False,
     markup=True,
 )
-h1.setLevel(level)
+h1.setLevel(log_level)
 h2.setLevel(logging.DEBUG)
 h1.setFormatter(console_formatter)
 h2.setFormatter(console_formatter)

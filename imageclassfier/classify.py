@@ -1,15 +1,15 @@
 import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
-from os import name, scandir
 from pathlib import Path
 from typing import Iterable
 
 import regex as re
+from anyutils.file import scan_folder
 from rich import print
 from rich.progress import track
 
-from logger import logger
-from model import Platform
+from .logger import logger
+from .model import Platform
 
 user_id_pattern = r"(?<=@user_id=).*?(?=@|(\.[a-zA-Z]+$))"
 user_pattern = r"(?<=@user=).*?(?=@|(\.[a-zA-Z]+$))"
@@ -22,26 +22,13 @@ platformTarget = tuple[platformId, platform]
 imagesPath = dict[platformTarget, list[Path]]
 
 
-def scan_folder(loc: Path):
-    """
-    return file
-    """
-    folder = [str(loc.resolve(strict=True))]
-    file: list[str] = list()
-    while folder:
-        now = folder.pop(0)
-        logger.info(f"正在遍历 {now}.")
-        with scandir(now) as dir:
-            for it in dir:
-                if it.is_file():
-                    file.append(it.path)
-                else:
-                    folder.append(it.path)
-    return file
+retype = re.Match[str] | None
 
 
-def regex_info(file: Iterable[str]):
-    res: list[tuple[str, tuple[Future, Future, Future]]] = list()
+def regex_info1(file: Iterable[str]):
+    res: list[
+        tuple[str, tuple[Future[retype], Future[retype], Future[retype]]]
+    ] = list()
     with ThreadPoolExecutor() as exec:
         for i in file:
             r = (
@@ -76,8 +63,9 @@ def find_all_fast(targets: dict[Platform, set[Path]], loc: Path):
     2. 递归变递推
     3. 使用第三方 `regex` 库进行正则匹配 (释放 GIL)
     """
+    return
     file = scan_folder(loc)
-    res = regex_info(file)
+    res = regex_info1(file)
     for i in track(res, description="", transient=True):
         a = i[1][0].result()
         b = i[1][1].result()
